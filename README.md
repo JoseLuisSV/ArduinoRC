@@ -1,0 +1,367 @@
+#ArduinoRC
+/*
+AVANZAR = a
+DETNER  = b
+IZQUIERDA = c 
+DERECHA = d
+LUCES = e
+APAGAR = f
+Reversa = g
+*/
+
+
+#include <SoftwareSerial.h>
+
+//Pines del HC-06 
+SoftwareSerial BT(12,11);//12 RX, 11 TX.
+//Variable para ir alamacenando cada caracter del buffer que se le envie al modulo HC-06
+char com;
+//Variabe ue contendra todo el mensaje completo
+String cadena;
+
+//Variables necesarias para manejar el sensor ultrasonico
+const int trigger = 10;
+const int echo = 9;
+
+//Variable que nos permetirira manipular la velocidad del carro
+int cambio;
+ 
+// Variables necesarias para controlar el Motor A
+const int ENA = 5; // Pin PWM
+const int IN1 = 2;
+const int IN2 = 3;
+ 
+//Variables necesarias para controlar el  Motor B
+const int ENB = 6; // Pin PWM
+const int IN3 = 4;
+const int IN4 = 7;
+
+/// Fin de definición de pines
+ 
+/// Estados de movimiento y velocidad
+int dirActualA = 0;
+int velActualA = 0;
+int dirActualB = 0; 
+int velActualB = 0;
+ 
+ //Variables necesarias para establecer la velocidad maxima, la minima y promedio
+int VELOCIDAD_MAX = 250;
+int VELOCIDAD_MIN = 100;
+int VELOCIDAD_ARRANQUE = 200;
+int VELOCIDAD_NORMAL = 150;
+ 
+
+/// Fin de estados de movimiento y velocidad
+
+//Variables necesarias para establecer la distancia maxima y minima que obtendra el sensor ultrasonico
+float DISTANCIA_MAX = 450.0;
+float distancia_anterior = 0.0;
+ 
+
+void setup() {
+ //Inicializamos la velocidad con la que se comunicara el puerto serial y el modulo HC-06
+  Serial.begin(9600);
+   BT.begin(9600);
+
+   //Inicializamos los pines del sensor ultrasonico
+  pinMode(trigger, OUTPUT);
+    pinMode(echo, INPUT);
+    
+    //Pines que ae encargaran de prender o apagar las luces del carro
+    pinMode(14,OUTPUT);
+    pinMode(15,OUTPUT);
+    
+ 
+    // Inicializamos los pines del puente H que controlaran a los motores
+    pinMode(ENA, OUTPUT);
+    pinMode(ENB, OUTPUT);
+    pinMode(IN1, OUTPUT);
+    pinMode(IN2, OUTPUT);
+    pinMode(IN3, OUTPUT);
+    pinMode(IN4, OUTPUT);
+    
+    /// Fin de inicialización de pines
+
+    //Inicializamos la variable que se encargara de variar la velocidad de los motores en este caso 0
+    cambio =0;
+    
+    // Paramos los motores por defecto
+    detenerAB();
+
+}
+
+
+void loop() {
+//Funciones que se repetiran indefinidamente para controlar el carro
+ envia_datos();
+  recibe_datos();
+  delay(10);
+}
+
+
+
+
+
+
+
+//Funcion que se encargara de enviar la distancia calculada por el sensor ultrasonico del carro a la aplicacion del  celular
+void envia_datos(){
+  
+ Mensaje que se envia al celular para comprobar que hay comunicacion
+ BT.print("*");
+   // Se calcula la distancia atravez del sensor ultrasonico
+    ///
+    // Trigger inicial
+    digitalWrite(trigger, LOW);
+    delayMicroseconds(5);
+    // Comienzo de la medida
+    digitalWrite(trigger, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigger, LOW);
+    // Adquisición y conversión a centímetros
+    float distancia = pulseIn(echo, HIGH);
+    
+   
+   //Si la distancia es menor a 10...al resultado se le anteponen 3 ceros.... 0009
+    if(distancia < 10){
+        BT.print('0');
+        BT.print('0');
+        BT.print('0');
+        BT.print(distancia);
+      }
+      
+
+
+    //Si la distancia es mayor a 9 y menor a 100 se le anteponen 2 ceros....0097
+      if(distancia > 9 && distancia < 100){
+        BT.print('0');
+        BT.print('0');
+        BT.print(distancia);
+      }
+
+
+      //Si la distancia es mayor a 99 y menor a 1000 se le antepone un cero.... 0999
+      if(distancia > 99 && distancia < 1000){
+        BT.print('0');
+        BT.print(distancia);
+      }
+     
+
+     //Si la distacnai en mayor a 999 se manda sin ninguna modificacion...1021
+     if(distancia > 999){
+        BT.print(distancia);
+      }   
+   
+     
+     //Se hace una pausa de 10 milisegundos por cada resultado enviado
+      delay(10);
+  }
+
+
+
+
+
+
+  //Funcion que se encargara de recibir las ordenes enviadas del celular a modulo HC-06
+ void recibe_datos(){
+
+    //Se comprueba si se esta enviando algun mensaje al modulo HC-06 
+    if (BT.available() > 0) {cadena = "";}
+    //Si es asi se obtienen todo el mensaje enviado y se almacena en la variable cadena
+    while(BT.available() > 0){
+      com = ((byte)BT.read());
+      delay(10); 
+      if(com == '°'){
+        break;
+      }else{
+        cadena += com;
+       
+      }
+      
+      }
+      
+
+      //Se imprime el mensaje por el puerto serial
+     Serial.println(cadena);
+
+
+     //Una vez obtenido el mensaje se compara con cada una de las condiciones ya establecidas en el programa
+     //Por ejemplo si el mensaje es 'a' el carro comenzara a moverse 
+      
+
+      //Moviemiento de carro
+      if(cadena == "a"){
+       avanzaA();
+       avanzaB();
+        setVelocidadA(cambio);
+        setVelocidadB(cambio);
+          
+      }  
+      
+
+      //Detiene el carro
+      if(cadena == "b"){
+       detenerAB();
+      }  
+      
+
+      //El carro gira a la izquierda
+      if(cadena == "c"){
+        retrocedeB();
+        setVelocidadB(cambio);
+      }  
+      
+
+      //El carro gira ala derecha
+      if(cadena == "d"){
+        retrocedeA();
+        setVelocidadA(cambio);
+      }  
+        
+        
+       //El carro prende sus luces 
+      if(cadena == "e"){
+      digitalWrite(14,1);
+      digitalWrite(15,1);
+          
+      }  
+
+
+      //El carro apaga sus luces
+      if(cadena == "f"){
+      digitalWrite(14,0);
+      digitalWrite(15,0);
+      }  
+
+
+      //El carro retrocede
+      if(cadena == "g"){
+        retrocedeA();
+        retrocedeB();
+        setVelocidadA(cambio);
+        setVelocidadB(cambio);
+      }  
+
+
+      //Cambio de velocidad
+
+      //Velocidad minima
+      if(cadena == "x"){
+        cambio  = 125;
+      }  
+      
+      //Normal
+      if(cadena == "y"){
+        cambio  = 150;
+      }  
+
+
+      //Rapido   
+      if(cadena == "z"){
+        cambio  = 175;
+      }     
+    
+
+
+    //Muy rapido
+      if(cadena == "w"){
+        cambio  = 200;
+      }  
+
+
+      //Fin del metodo de recibir ordenes
+    
+    }
+  
+
+
+ 
+/// Funciones de motores
+
+
+//Funcion para detener el motorA
+void detenerA() {
+    digitalWrite(ENA, LOW);// Motor A desactivado
+}
+ 
+
+//Funcion para detener el motorB 
+void detenerB() {
+    digitalWrite(ENB, LOW);// Motor B desactivado
+}
+
+
+//Detener los dos motores al mismo tiempo
+void detenerAB() {
+    detenerA();
+    detenerB();
+}
+ 
+
+
+//Metodo para iniciciar el motor A en sentido horario
+void avanzaA() {
+    
+ if(dirActualA == 1) return;
+    detenerA();
+    dirActualA = 1;
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, HIGH);
+}
+ 
+
+//Funcion que hara que el motor A inicie en sentido Antihorario
+void retrocedeA() {
+    if(dirActualA == -1) return;
+ 
+    detenerA();
+    dirActualA = -1;
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+}
+
+
+
+ //Funcion para iniciar el motor B en sentido horario
+void avanzaB() {
+    if(dirActualB == 1) return;
+ 
+    detenerB();
+    dirActualB=1;
+    digitalWrite(IN3,LOW);
+    digitalWrite(IN4,HIGH);
+}
+ 
+
+ //Funcion que hara que el motor B inicie en sentido Antihorario
+void retrocedeB() {
+    if(dirActualB==-1) return;
+ 
+    detenerB();
+    dirActualB=-1;
+    digitalWrite(IN3,HIGH);
+    digitalWrite(IN4,LOW);
+}
+
+
+//Funcion para cambiar la velocidad del motor A 
+void setVelocidadA(int velocidad) {
+    if(dirActualA == 0) return;
+    velActualA = (velocidad >= VELOCIDAD_MAX) ? VELOCIDAD_MAX : velocidad;
+    analogWrite(ENA, velActualA);
+}
+ 
+//Funcion para cambiar la velocidad del motor B 
+void setVelocidadB(int velocidad) {
+    if(dirActualB == 0) return;
+    velActualB = (velocidad >= VELOCIDAD_MAX) ? VELOCIDAD_MAX : velocidad;
+    analogWrite(ENB, velActualB);
+}
+ 
+//Funcion para cambiar la velocidad de ambos motores al mismo tiempo 
+void setVelocidadAB(int velocidad) {
+    setVelocidadA(velocidad);
+    setVelocidadB(velocidad);
+}
+ 
+/// Fin funciones de motores
